@@ -132,14 +132,23 @@ class PayPalBillingAgreementService {
   // Charge a customer for a billing agreement
   public static function chargeCustomer($agreementId, $amount, $currency = 'USD') {
     $instance = self::getAuthInstance();
-    $url = $instance['base_url'] . "/payments/billing-agreements/$agreementId/payments";
+    // Use the payments endpoint (v1/payments/payment)
+    $url = $instance['base_url'] . '/payments/payment';
     $data = json_encode([
-      'amount' => [
-        'value' => $amount,
-        'currency' => $currency
-      ],
-      'note' => 'Charge at delivery time',
-      'custom_id' => uniqid()
+        'intent' => 'sale',
+        'payer' => [
+            'payment_method' => 'paypal'
+        ],
+        'transactions' => [
+            [
+                'amount' => [
+                    'total' => $amount,
+                    'currency' => $currency
+                ],
+                'description' => 'Final amount at delivery'
+            ]
+        ],
+        'billing_agreement_id' => $agreementId
     ]);
 
     $ch = curl_init($url);
@@ -151,7 +160,7 @@ class PayPalBillingAgreementService {
     curl_close($ch);
 
     if (!$response) {
-      throw new Exception('Payment failed');
+        throw new Exception('Payment failed');
     }
 
     return json_decode($response, true);
