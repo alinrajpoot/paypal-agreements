@@ -1,3 +1,9 @@
 {
-  "cSpell.words": ["CURLOPT", "HTTPHEADER", "POSTFIELDS", "RETURNTRANSFER"]
+  "cSpell.words": [
+    "CURLOPT",
+    "HTTPHEADER",
+    "isset",
+    "POSTFIELDS",
+    "RETURNTRANSFER"
+  ]
 }

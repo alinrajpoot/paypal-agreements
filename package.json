@@ -1,15 +1,24 @@
 {
-  "name": "paypal-agreements",
+  "name": "paypal-billing-agreement-service",
   "version": "1.0.0",
-  "description": "",
+  "description": "A service class that handles PayPal Billing Agreement operations.",
   "main": "index.js",
+  "types": "index.d.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "start": "node dist/index.js"
   },
-  "keywords": [],
-  "author": "alinrajpoot",
-  "license": "ISC",
+  "keywords": [
+    "paypal",
+    "billing"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
-    "axios": "^1.7.9"
+    "axios": "^0.21.1"
+  },
+  "devDependencies": {
+    "typescript": "^4.4.3"
   }
 }

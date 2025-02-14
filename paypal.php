@@ -1,63 +1,76 @@
 <?php
 
+namespace PayPal\BillingAgreement;
+
 /**
- * Service class for handling PayPal integrations and operations.
+ * PayPal Billing Agreement Service
  * 
- * This class provides methods for managing PayPal transactions, subscriptions,
- * agreements, and other PayPal-related functionalities.
+ * A service class that handles PayPal Billing Agreement operations including:
+ * - Creating billing agreement tokens
+ * - Executing billing agreements
+ * - Processing reference transactions
+ * 
+ * @package PayPal\BillingAgreement
+ * @author Your Name <your.email@example.com>
+ * @license MIT
  */
-class PayPalBillingAgreementService {
-  // PayPal API configuration
-  private static $authInstance = null;
+class PayPalBillingAgreementService 
+{
+  /** @var array|null PayPal API configuration */
   private static $config = null;
 
-  // Initialize PayPal API configuration
-  private static function initConfig() {
-    if (self::$config === null) {
-      self::$config = [
-        'SANDBOX_BASE_URL' => 'https://api-m.sandbox.paypal.com/v1',
-        'CLIENT_ID' => 'YOUR_CLIENT_ID',
-        'SECRET' => 'YOUR_SECRET'
-      ];
-    }
+  /** @var array|null PayPal API authentication instance */
+  private static $authInstance = null;
+
+  /**
+   * PayPal API Configuration
+   * 
+   * @param string $clientId PayPal API Client ID
+   * @param string $secret PayPal API Secret
+   * @param bool $sandbox Whether to use sandbox environment (default: true)
+   * @return void
+   */
+  public static function configure(string $clientId, string $secret, bool $sandbox = true): void 
+  {
+    self::$config = [
+      'BASE_URL' => $sandbox ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com',
+      'CLIENT_ID' => $clientId,
+      'SECRET' => $secret
+    ];
   }
 
-  // Get PayPal API authentication instance
-  private static function getAuthInstance() {
-    self::initConfig();
+  /**
+   * Get PayPal API authentication instance
+   * 
+   * @throws \RuntimeException If authentication fails
+   * @return array Authentication instance containing base URL and headers
+   */
+  private static function getAuthInstance(): array 
+  {
+    if (!self::$config) {
+      throw new \RuntimeException('PayPal configuration not initialized. Call configure() first.');
+    }
+
     if (self::$authInstance) {
       return self::$authInstance;
     }
 
-    $url = self::$config['SANDBOX_BASE_URL'] . '/oauth2/token';
+    $url = self::$config['BASE_URL'] . '/v1/oauth2/token';
     $auth = base64_encode(self::$config['CLIENT_ID'] . ':' . self::$config['SECRET']);
-    $headers = [
+    
+    $response = self::makeRequest($url, [
       'Authorization: Basic ' . $auth,
-      'Content-Type: application/x-www-form-urlencoded',
-    ];
-    $data = 'grant_type=client_credentials';
+      'Content-Type: application/x-www-form-urlencoded'
+    ], 'grant_type=client_credentials');
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    $response = curl_exec($ch);
-    curl_close($ch);
-
-    if (!$response) {
-      throw new Exception('Authentication failed');
-    }
-
-    $responseData = json_decode($response, true);
-    if (!isset($responseData['access_token'])) {
-      throw new Exception('Failed to retrieve access token');
+    if (!isset($response['access_token'])) {
+      throw new \RuntimeException('Failed to retrieve access token');
     }
 
     self::$authInstance = [
-      'base_url' => self::$config['SANDBOX_BASE_URL'],
+      'base_url' => self::$config['BASE_URL'],
       'headers' => [
-        'Authorization: Bearer ' . $responseData['access_token'],
+        'Authorization: Bearer ' . $response['access_token'],
         'Content-Type: application/json'
       ],
     ];
@@ -65,121 +78,164 @@ class PayPalBillingAgreementService {
     return self::$authInstance;
   }
 
-  // Create a billing agreement token
-  public static function createBillingAgreementToken($returnUrl, $cancelUrl) {
+  /**
+   * Create a billing agreement token
+   * 
+   * @param string $returnUrl Success URL after agreement approval
+   * @param string $cancelUrl Cancel URL if user cancels agreement
+   * @return string Approval URL for the billing agreement
+   * @throws \RuntimeException If token creation fails
+   */
+  public static function createBillingAgreementToken(string $returnUrl, string $cancelUrl): string 
+  {
     $instance = self::getAuthInstance();
-    $url = $instance['base_url'] . '/billing-agreements/agreement-tokens';
-    $data = json_encode([
+    $url = $instance['base_url'] . '/v1/billing-agreements/agreement-tokens';
+
+    $payload = [
+      'name' => 'Post Payment Profile',
       'description' => 'Flexible Payment Agreement',
+      'start_date' => gmdate('Y-m-d\TH:i:s\Z', strtotime('+1 minute')),
       'payer' => ['payment_method' => 'PAYPAL'],
       'plan' => [
         'type' => 'MERCHANT_INITIATED_BILLING',
         'merchant_preferences' => [
           'return_url' => $returnUrl,
           'cancel_url' => $cancelUrl,
-        ],
-      ],
-    ]);
+          'accepted_pymt_type' => 'ANY',
+          'setup_fee' => [
+            'value' => '0.00',
+            'currency_code' => 'USD'
+          ]
+        ]
+      ]
+    ];
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $instance['headers']);
-    $response = curl_exec($ch);
-    curl_close($ch);
+    $response = self::makeRequest($url, $instance['headers'], json_encode($payload));
 
-    if (!$response) {
-      throw new Exception('Failed to create billing agreement token');
-    }
-
-    $responseData = json_decode($response, true);
-    foreach ($responseData['links'] as $link) {
+    foreach ($response['links'] ?? [] as $link) {
       if ($link['rel'] === 'approval_url') {
         return $link['href'];
       }
     }
 
-    throw new Exception('Approval URL not found');
+    throw new \RuntimeException('Approval URL not found');
   }
 
-  // Execute a billing agreement
-  public static function executeBillingAgreement($token) {
+  /**
+   * Execute a billing agreement
+   * 
+   * @param string $token Billing agreement token
+   * @return array Billing agreement details
+   * @throws \RuntimeException If execution fails
+   */
+  public static function executeBillingAgreement(string $token): array 
+  {
     $instance = self::getAuthInstance();
-    $url = $instance['base_url'] . '/billing-agreements/agreements';
-    $data = json_encode(['token_id' => $token]);
+    $url = $instance['base_url'] . '/v1/billing-agreements/agreements';
+    $payload = json_encode(['token_id' => $token]);
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $instance['headers']);
-    $response = curl_exec($ch);
-    curl_close($ch);
+    $response = self::makeRequest($url, $instance['headers'], $payload);
 
-    if (!$response) {
-      throw new Exception('Failed to execute billing agreement');
+    if (!isset($response['id'])) {
+      throw new \RuntimeException('Billing Agreement ID not found');
     }
 
-    $responseData = json_decode($response, true);
-    if (!isset($responseData['id'])) {
-      throw new Exception('Billing Agreement ID not found');
-    }
-
-    return $responseData['id'];
+    return [
+      'id' => $response['id'],
+      'payer_id' => $response['payer']['payer_info']['payer_id']
+    ];
   }
 
-  // Charge a customer for a billing agreement
-  public static function chargeCustomer($agreementId, $amount, $currency = 'USD') {
+  /**
+   * Charge a customer using a reference transaction
+   * 
+   * @param string $payerId Payer ID
+   * @param string $agreementId Billing agreement ID
+   * @param string $amount Amount to charge
+   * @param string $currency Currency code (default: USD)
+   * @return array Payment response
+   * @throws \RuntimeException If charging fails
+   */
+  public static function chargeCustomer(string $payerId, string $agreementId, string $amount, string $currency = 'USD'): array 
+  {
     $instance = self::getAuthInstance();
-    // Use the payments endpoint (v1/payments/payment)
-    $url = $instance['base_url'] . '/payments/payment';
-    $data = json_encode([
-        'intent' => 'sale',
-        'payer' => [
-            'payment_method' => 'paypal'
-        ],
-        'transactions' => [
-            [
-                'amount' => [
-                    'total' => $amount,
-                    'currency' => $currency
-                ],
-                'description' => 'Final amount at delivery'
-            ]
-        ],
-        'billing_agreement_id' => $agreementId
+
+    // Step 1: Convert Billing Agreement to Payment Token (v3)
+    $v3Url = $instance['base_url'] . '/v3/vault/payment-tokens';
+    $tokenPayload = json_encode([
+      'payment_source' => [
+        'token' => [
+          'type' => 'BILLING_AGREEMENT',
+          'id' => $agreementId
+        ]
+      ]
     ]);
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $instance['headers']);
-    $response = curl_exec($ch);
-    curl_close($ch);
+    $tokenResponse = self::makeRequest($v3Url, $instance['headers'], $tokenPayload);
 
-    if (!$response) {
-        throw new Exception('Payment failed');
+    if (!isset($tokenResponse['id'])) {
+      throw new \RuntimeException('Payment token not returned');
     }
 
-    return json_decode($response, true);
+    $paymentToken = $tokenResponse['id'];
+
+    // Step 2: Create an Order using the v2 Orders API
+    $orderUrl = $instance['base_url'] . '/v2/checkout/orders';
+    $orderPayload = json_encode([
+      'intent' => 'CAPTURE',
+      'purchase_units' => [
+        [
+          'amount' => [
+            'currency_code' => $currency,
+            'value' => $amount
+          ],
+          'description' => 'Charge amount at delivery'
+        ]
+      ],
+      'payment_source' => [
+        'token' => [
+          'id' => $paymentToken,
+          'type' => 'PAYMENT_METHOD_TOKEN'
+        ]
+      ]
+    ]);
+
+    $orderResponse = self::makeRequest($orderUrl, $instance['headers'], $orderPayload);
+
+    if (!isset($orderResponse['id'])) {
+      throw new \RuntimeException('Order ID not found');
+    }
+
+    return $orderResponse;
+  }
+
+  /**
+   * Make HTTP request to PayPal API
+   * 
+   * @param string $url API endpoint
+   * @param array $headers Request headers
+   * @param string $data Request payload
+   * @return array Response data
+   * @throws \RuntimeException If request fails
+   */
+  private static function makeRequest(string $url, array $headers, string $data): array 
+  {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_POST => true,
+      CURLOPT_POSTFIELDS => $data,
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_HTTPHEADER => $headers
+    ]);
+
+    $response = curl_exec($ch);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($error) {
+      throw new \RuntimeException('Request failed: ' . $error);
+    }
+
+    return json_decode($response, true) ?? [];
   }
 }
-
-// Usage example:
-try {
-    $approvalUrl = PayPalBillingAgreementService::createBillingAgreementToken('https://example.com/success', 'https://example.com/cancel');
-    echo "Approval URL: " . $approvalUrl . PHP_EOL;
-
-    // After approval, execute agreement
-    $agreementId = PayPalBillingAgreementService::executeBillingAgreement('TOKEN_FROM_RETURN_URL');
-    echo "Agreement ID: " . $agreementId . PHP_EOL;
-
-    // Charge the customer
-    $payment = PayPalBillingAgreementService::chargeCustomer($agreementId, '55.00');
-    echo "Payment Response: " . json_encode($payment) . PHP_EOL;
-} catch (Exception $e) {
-    echo "Error: " . $e->getMessage();
-}
-?>

@@ -26,9 +26,16 @@ This project provides a service class for handling PayPal integrations and opera
    export PAYPAL_SECRET=your-secret
    ```
 
-4. Run the service:
+4. Build the project:
+
    ```sh
-   node index.js
+   npm run build
+   ```
+
+5. Run the service:
+
+   ```sh
+   npm start
    ```
 
 ### PHP Version
@@ -56,22 +63,32 @@ This project provides a service class for handling PayPal integrations and opera
 ```javascript
 import PayPalBillingAgreementService from "./index.js";
 
-const paypal = PayPalBillingAgreementService;
+// Configure the PayPal service
+PayPalBillingAgreementService.configure("your-client-id", "your-secret");
 
 try {
-  const approvalUrl = await paypal.createBillingAgreementToken(
-    "https://example.com/success",
-    "https://example.com/cancel"
-  );
+  // Create a billing agreement token
+  const approvalUrl =
+    await PayPalBillingAgreementService.createBillingAgreementToken(
+      "https://example.com/success",
+      "https://example.com/cancel"
+    );
   console.log("Approval URL:", approvalUrl);
 
-  const agreementId = await paypal.executeBillingAgreement(
-    "TOKEN_FROM_RETURN_URL"
-  );
-  console.log("Agreement ID:", agreementId);
+  // Execute the billing agreement after approval
+  const agreementDetails =
+    await PayPalBillingAgreementService.executeBillingAgreement(
+      "TOKEN_FROM_RETURN_URL"
+    );
+  console.log("Agreement Details:", agreementDetails);
 
-  const payment = await paypal.chargeCustomer(agreementId, "55.00");
-  console.log("Payment Response:", payment);
+  // Charge the customer
+  const paymentResponse = await PayPalBillingAgreementService.chargeCustomer(
+    agreementDetails.payer_id,
+    agreementDetails.id,
+    "55.00"
+  );
+  console.log("Payment Response:", paymentResponse);
 } catch (error) {
   console.error(error);
 }
@@ -82,17 +99,35 @@ try {
 ```php
 require_once 'paypal.php';
 
+// Configure the PayPal service
+PayPal\BillingAgreement\PayPalBillingAgreementService::configure('your-client-id', 'your-secret');
+
 try {
-    $approvalUrl = PayPalBillingAgreementService::createBillingAgreementToken('https://example.com/success', 'https://example.com/cancel');
-    echo "Approval URL: " . $approvalUrl . PHP_EOL;
+    if (!isset($_GET['returnUrl']) && !isset($_GET['agreement_id'])) {
+        // Create a billing agreement token
+        $approvalUrl = PayPal\BillingAgreement\PayPalBillingAgreementService::createBillingAgreementToken(
+            'http://localhost/paypal.php?returnUrl=success',
+            'http://localhost/paypal.php?returnUrl=cancel'
+        );
+        echo "Approval URL: <a href=\"$approvalUrl\">" . $approvalUrl . "</a>";
+    }
 
-    // After approval, execute agreement
-    $agreementId = PayPalBillingAgreementService::executeBillingAgreement('TOKEN_FROM_RETURN_URL');
-    echo "Agreement ID: " . $agreementId . PHP_EOL;
+    if (isset($_GET['returnUrl']) && $_GET['returnUrl'] == 'success'
+         && isset($_GET['token']) && !empty($_GET['token'])
+         && isset($_GET['ba_token']) && !empty($_GET['ba_token'])) {
+        // Execute the billing agreement after approval
+        $agreement = PayPal\BillingAgreement\PayPalBillingAgreementService::executeBillingAgreement($_GET['ba_token']);
+        echo "Agreement ID: " . $agreement['id'] . "<br>";
+        echo "Charge: <a href=\"paypal.php?payer_id=" . $agreement['payer_id'] . "&agreement_id=" . $agreement['id'] . "\">Click here to charge</a><br>";
+    }
 
-    // Charge the customer
-    $payment = PayPalBillingAgreementService::chargeCustomer($agreementId, '55.00');
-    echo "Payment Response: " . json_encode($payment) . PHP_EOL;
+    if (isset($_GET['agreement_id']) && !empty($_GET['agreement_id']) && isset($_GET['payer_id']) && !empty($_GET['payer_id'])) {
+        // Charge the customer using the reference transaction approach
+        $payerId = $_GET['payer_id'];
+        $agreementId = $_GET['agreement_id'];
+        $payment = PayPal\BillingAgreement\PayPalBillingAgreementService::chargeCustomer($payerId, $agreementId, '55.00');
+        echo "Payment Response: " . json_encode($payment);
+    }
 } catch (Exception $e) {
     echo "Error: " . $e->getMessage();
 }
